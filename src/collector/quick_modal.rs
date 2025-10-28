@@ -95,6 +95,7 @@ impl<'a> CreateQuickModal<'a> {
         self.field(label, input_text)
     }
 
+    // TODO: Handle all possible inputs
     /// # Errors
     ///
     /// See [`CreateInteractionResponse::execute()`].
@@ -126,19 +127,11 @@ impl<'a> CreateQuickModal<'a> {
             .components
             .iter()
             .filter_map(|component| {
-                if let Component::Label(label) = component
-                    && let LabelComponent::InputText(text) = &label.component
+                if let ModalInteractionDataKind::Label { component } = component
+                    && let ModalInteractionLabelDataKind::InputText { value } = &component
                 {
-                    if let Some(value) = &text.value {
-                        Some(value.clone())
-                    } else {
-                        tracing::warn!("input text value was empty in modal response");
-                        None
-                    }
+                    Some(FixedString::from_string_trunc(value.clone()))
                 } else {
-                    if !matches!(component, Component::TextDisplay(_)) {
-                        tracing::warn!("expected input text in modal response, got {component:?}");
-                    }
                     None
                 }
             })

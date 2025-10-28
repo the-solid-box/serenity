@@ -1,3 +1,6 @@
+use serde::ser::SerializeMap as _;
+use serde::de::Error as DeError;
+use serde_json::from_value;
 use serde::Serialize;
 
 #[cfg(feature = "model")]
@@ -205,6 +208,164 @@ impl Serialize for ModalInteraction {
     }
 }
 
+#[cfg_attr(feature = "typesize", derive(typesize::derive::TypeSize))]
+#[derive(Clone, Debug)]
+pub enum ModalInteractionLabelDataKind {
+    StringSelect { values: FixedArray<String> },
+    InputText { value: String },
+    UserSelect { values: FixedArray<UserId> },
+    RoleSelect { values: FixedArray<RoleId> },
+    MentionableSelect { values: FixedArray<GenericId> },
+    ChannelSelect { values: FixedArray<ChannelId> },
+    // TODO: file upload id?
+    FileUpload { values: FixedArray<u64> },
+    Unknown(u8),
+}
+
+// Manual impl needed to emulate integer enum tags
+impl<'de> Deserialize<'de> for ModalInteractionLabelDataKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> StdResult<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Json {
+            component_type: ComponentType,
+            #[serde(alias = "value")]
+            values: Option<Value>,
+        }
+        let json = Json::deserialize(deserializer)?;
+
+        macro_rules! parse_values {
+            () => {
+                from_value(json.values.ok_or_else(|| D::Error::missing_field("values/value"))?)
+                    .map_err(D::Error::custom)?
+            };
+        }
+
+        Ok(match json.component_type {
+            ComponentType::InputText => Self::InputText {
+                value: parse_values!(),
+            },
+            ComponentType::StringSelect => Self::StringSelect {
+                values: parse_values!(),
+            },
+            ComponentType::UserSelect => Self::UserSelect {
+                values: parse_values!(),
+            },
+            ComponentType::RoleSelect => Self::RoleSelect {
+                values: parse_values!(),
+            },
+            ComponentType::MentionableSelect => Self::MentionableSelect {
+                values: parse_values!(),
+            },
+            ComponentType::ChannelSelect => Self::ChannelSelect {
+                values: parse_values!(),
+            },
+            ComponentType::FileUpload => Self::FileUpload {
+                values: parse_values!(),
+            },
+            x @ (ComponentType::ActionRow | ComponentType::Button) => {
+                return Err(D::Error::custom(format_args!(
+                    "invalid message component type in this context: {x:?}",
+                )));
+            },
+            ComponentType(x) => Self::Unknown(x),
+        })
+    }
+}
+
+impl Serialize for ModalInteractionLabelDataKind {
+    #[rustfmt::skip] // Remove this for horror.
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> StdResult<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("component_type", &match self {
+            Self::StringSelect { .. } => 3,
+            Self::InputText { .. } => 4,
+            Self::UserSelect { .. } => 5,
+            Self::RoleSelect { .. } => 6,
+            Self::MentionableSelect { .. } => 7,
+            Self::ChannelSelect { .. } => 8,
+            Self::FileUpload { .. } => 19,
+            Self::Unknown(x) => *x,
+        })?;
+
+        match self {
+            Self::StringSelect { values } => map.serialize_entry("values", values)?,
+            Self::InputText { value } => map.serialize_entry("value", value)?,
+            Self::UserSelect { values } => map.serialize_entry("values", values)?,
+            Self::RoleSelect { values } => map.serialize_entry("values", values)?,
+            Self::MentionableSelect { values } => map.serialize_entry("values", values)?,
+            Self::ChannelSelect { values } => map.serialize_entry("values", values)?,
+            Self::FileUpload { values } => map.serialize_entry("values", values)?,
+            Self::Unknown(_) => map.serialize_entry("values", &None::<()>)?,
+        }
+
+        map.end()
+    }
+}
+
+// TODO: Support more than labels
+
+#[cfg_attr(feature = "typesize", derive(typesize::derive::TypeSize))]
+#[derive(Clone, Debug)]
+pub enum ModalInteractionDataKind {
+    Label { component: ModalInteractionLabelDataKind },
+    Unknown(u8),
+}
+
+// Manual impl needed to emulate integer enum tags
+impl<'de> Deserialize<'de> for ModalInteractionDataKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> StdResult<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Json {
+            component_type: ComponentType,
+            component: Option<Value>,
+        }
+        let json = Json::deserialize(deserializer)?;
+
+        macro_rules! parse_values {
+            () => {
+                from_value(json.component.ok_or_else(|| D::Error::missing_field("component"))?)
+                    .map_err(D::Error::custom)?
+            };
+        }
+
+        Ok(match json.component_type {
+            ComponentType::Label => Self::Label {
+                component: parse_values!(),
+            },
+            x @ (
+                ComponentType::ActionRow | ComponentType::Button | ComponentType::InputText |
+                ComponentType::StringSelect | ComponentType::UserSelect |
+                ComponentType::RoleSelect | ComponentType::MentionableSelect |
+                ComponentType::ChannelSelect | ComponentType::FileUpload
+            ) => {
+                return Err(D::Error::custom(format_args!(
+                    "invalid message component type in this context: {x:?}",
+                )));
+            },
+            ComponentType(x) => Self::Unknown(x),
+        })
+    }
+}
+
+impl Serialize for ModalInteractionDataKind {
+    #[rustfmt::skip] // Remove this for horror.
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> StdResult<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("component_type", &match self {
+            Self::Label { .. } => 18,
+            Self::Unknown(x) => *x,
+        })?;
+
+        match self {
+            Self::Label { component } => map.serialize_entry("component", component)?,
+            Self::Unknown(_) => map.serialize_entry("component", &None::<()>)?,
+        }
+
+        map.end()
+    }
+}
+
+
 /// A modal submit interaction data, provided by [`ModalInteraction::data`]
 ///
 /// [Discord docs](https://discord.com/developers/docs/interactions/receiving-and-responding#interaction-object-modal-submit-data-structure).
@@ -214,8 +375,8 @@ impl Serialize for ModalInteraction {
 pub struct ModalInteractionData {
     /// The custom id of the modal
     pub custom_id: FixedString,
-    /// The components.
-    pub components: FixedArray<Component>,
+    /// Type and type-specific data of this modal interaction.
+    pub components: Vec<ModalInteractionDataKind>,
     /// The resolved entities from the selected options.
     #[serde(default)]
     pub resolved: CommandDataResolved,

@@ -261,7 +261,10 @@ impl WsClient {
         };
 
         let json_bytes = match message {
-            Message::Text(ref payload) => payload.as_bytes(),
+            Message::Text(ref payload) => {
+                // println!("Gateway RAW: {:?}", payload.clone().to_string());
+                payload.as_bytes()
+            },
             Message::Binary(ref bytes) => match self.compression.inflate(bytes)? {
                 Some(decompressed) => decompressed,
                 None => return Ok(None),
